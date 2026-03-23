@@ -1,20 +1,29 @@
 import supabaseClient from "@/utils/supabase";
 
 // Fetch Jobs
-export async function getJobs(token, { location, company_id, searchQuery }) {
+export async function getJobs(token, { state, city, company_id, searchQuery }) {
   const supabase = await supabaseClient(token);
+
   let query = supabase
     .from("jobs")
     .select("*, saved: saved_jobs(id), company: companies(name,logo_url)");
 
-  if (location) {
-    query = query.eq("location", location);
+  // ✅ State filter
+  if (state) {
+    query = query.eq("state", state);
   }
 
+  // ✅ City filter
+  if (city) {
+    query = query.eq("city", city);
+  }
+
+  // ✅ Company filter
   if (company_id) {
     query = query.eq("company_id", company_id);
   }
 
+  // ✅ Title search
   if (searchQuery) {
     query = query.ilike("title", `%${searchQuery}%`);
   }
@@ -22,7 +31,7 @@ export async function getJobs(token, { location, company_id, searchQuery }) {
   const { data, error } = await query;
 
   if (error) {
-    console.error("Error fetching Jobs:", error.message || error);
+    console.error("Error fetching Jobs:", error);
     return null;
   }
 
@@ -32,12 +41,13 @@ export async function getJobs(token, { location, company_id, searchQuery }) {
 // Read Saved Jobs
 export async function getSavedJobs(token) {
   const supabase = await supabaseClient(token);
+
   const { data, error } = await supabase
     .from("saved_jobs")
     .select("*, job: jobs(*, company: companies(name,logo_url))");
 
   if (error) {
-    console.error("Error fetching Saved Jobs:", error.message || error);
+    console.error("Error fetching Saved Jobs:", error);
     return null;
   }
 
@@ -47,6 +57,7 @@ export async function getSavedJobs(token) {
 // Read single job
 export async function getSingleJob(token, { job_id }) {
   const supabase = await supabaseClient(token);
+
   const { data, error } = await supabase
     .from("jobs")
     .select(
@@ -56,67 +67,51 @@ export async function getSingleJob(token, { job_id }) {
     .single();
 
   if (error) {
-    console.error("Error fetching Job:", error.message || error);
+    console.error("Error fetching Job:", error);
     return null;
   }
 
   return data;
 }
 
-// Add / Remove Saved Job (with duplicate prevention)
+// ✅ TOGGLE SAVE JOB
 export async function saveJob(token, { alreadySaved }, saveData) {
   const supabase = await supabaseClient(token);
 
   if (alreadySaved) {
-    // If the job is already saved, remove it
-    const { data, error: deleteError } = await supabase
+    const { error } = await supabase
       .from("saved_jobs")
       .delete()
       .eq("job_id", saveData.job_id)
       .eq("user_id", saveData.user_id);
 
-    if (deleteError) {
-      console.error("Error removing saved job:", deleteError.message || deleteError);
-      return null;
+    if (error) {
+      console.error("Error removing saved job:", error);
+      return { error };
     }
 
-    return data;
-  } else {
-    // Check if job already exists before inserting
-    const { data: existing, error: checkError } = await supabase
-      .from("saved_jobs")
-      .select("id")
-      .eq("job_id", saveData.job_id)
-      .eq("user_id", saveData.user_id);
-
-    if (checkError) {
-      console.error("Error checking saved jobs:", checkError.message || checkError);
-      return null;
-    }
-
-    if (existing && existing.length > 0) {
-      console.warn("Job already saved, skipping insert");
-      return existing;
-    }
-
-    // If not saved, insert
-    const { data, error: insertError } = await supabase
-      .from("saved_jobs")
-      .insert([saveData])
-      .select();
-
-    if (insertError) {
-      console.error("Error saving job:", insertError.message || insertError);
-      return null;
-    }
-
-    return data;
+    return { success: true, removed: true };
   }
+
+  const { data, error } = await supabase
+    .from("saved_jobs")
+    .insert([saveData]);
+
+  if (error) {
+    if (error.code === "23505") {
+      return { success: true, alreadyExists: true };
+    }
+    console.error("Error saving job:", error);
+    return { error };
+  }
+
+  return { success: true, data };
 }
 
-// Toggle job isOpen status
+// Hiring status toggle
 export async function updateHiringStatus(token, { job_id }, isOpen) {
   const supabase = await supabaseClient(token);
+
   const { data, error } = await supabase
     .from("jobs")
     .update({ isOpen })
@@ -124,14 +119,14 @@ export async function updateHiringStatus(token, { job_id }, isOpen) {
     .select();
 
   if (error) {
-    console.error("Error Updating Hiring Status:", error.message || error);
+    console.error("Error Updating Hiring Status:", error);
     return null;
   }
 
   return data;
 }
 
-// Get my created jobs
+// Get my jobs
 export async function getMyJobs(token, { recruiter_id }) {
   const supabase = await supabaseClient(token);
 
@@ -141,7 +136,7 @@ export async function getMyJobs(token, { recruiter_id }) {
     .eq("recruiter_id", recruiter_id);
 
   if (error) {
-    console.error("Error fetching Jobs:", error.message || error);
+    console.error("Error fetching Jobs:", error);
     return null;
   }
 
@@ -152,32 +147,38 @@ export async function getMyJobs(token, { recruiter_id }) {
 export async function deleteJob(token, { job_id }) {
   const supabase = await supabaseClient(token);
 
-  const { data, error: deleteError } = await supabase
+  const { data, error } = await supabase
     .from("jobs")
     .delete()
     .eq("id", job_id)
     .select();
 
-  if (deleteError) {
-    console.error("Error deleting job:", deleteError.message || deleteError);
+  if (error) {
+    console.error("Error deleting job:", error);
     return null;
   }
 
   return data;
 }
 
-// Post new job
+// ✅ Add new job (supports state-only, city-only, or both)
 export async function addNewJob(token, _, jobData) {
   const supabase = await supabaseClient(token);
 
+  const finalJobData = {
+    ...jobData,
+    state: jobData.state || null,
+    city: jobData.city || null,
+  };
+
   const { data, error } = await supabase
     .from("jobs")
-    .insert([jobData])
+    .insert([finalJobData])
     .select();
 
   if (error) {
-    console.error("Error creating job:", error.message || error);
-    throw new Error(error.message || "Error Creating Job");
+    console.error(error);
+    throw new Error("Error Creating Job");
   }
 
   return data;

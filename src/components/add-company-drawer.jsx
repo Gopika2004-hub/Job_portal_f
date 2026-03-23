@@ -63,15 +63,18 @@ const AddCompanyDrawer = ({ fetchCompanies }) => {
 
   return (
     <Drawer>
-      <DrawerTrigger>
-        <Button type="button" size="sm" variant="secondary">
+      {/* ✅ Use asChild so DrawerTrigger doesn't render its own <button> */}
+      <DrawerTrigger asChild>
+        <Button size="sm" variant="secondary">
           Add Company
         </Button>
       </DrawerTrigger>
+
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>Add a New Company</DrawerTitle>
         </DrawerHeader>
+
         <form className="flex gap-2 p-4 pb-0">
           {/* Company Name */}
           <Input placeholder="Company name" {...register("name")} />
@@ -80,7 +83,7 @@ const AddCompanyDrawer = ({ fetchCompanies }) => {
           <Input
             type="file"
             accept="image/*"
-            className=" file:text-gray-500"
+            className="file:text-gray-500"
             {...register("logo")}
           />
 
@@ -94,6 +97,7 @@ const AddCompanyDrawer = ({ fetchCompanies }) => {
             Add
           </Button>
         </form>
+
         <DrawerFooter>
           {errors.name && <p className="text-red-500">{errors.name.message}</p>}
           {errors.logo && <p className="text-red-500">{errors.logo.message}</p>}
@@ -101,10 +105,10 @@ const AddCompanyDrawer = ({ fetchCompanies }) => {
             <p className="text-red-500">{errorAddCompany?.message}</p>
           )}
           {loadingAddCompany && <BarLoader width={"100%"} color="#36d7b7" />}
+
+          {/* ✅ Use asChild here too */}
           <DrawerClose asChild>
-            <Button type="button" variant="secondary">
-              Cancel
-            </Button>
+            <Button variant="secondary">Cancel</Button>
           </DrawerClose>
         </DrawerFooter>
       </DrawerContent>

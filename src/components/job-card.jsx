@@ -17,47 +17,72 @@ import { BarLoader } from "react-spinners";
 
 const JobCard = ({
   job,
-  savedInit = false,
+  savedInit = false, // already saved or not
   onJobAction = () => {},
   isMyJob = false,
 }) => {
-  const [saved, setSaved] = useState(savedInit);
-
   const { user } = useUser();
 
+  // ❤️ local UI state
+  const [saved, setSaved] = useState(savedInit);
+
+  // delete job (recruiter)
   const { loading: loadingDeleteJob, fn: fnDeleteJob } = useFetch(deleteJob, {
     job_id: job.id,
   });
 
-  const {
-    loading: loadingSavedJob,
-    data: savedJob,
-    fn: fnSavedJob,
-  } = useFetch(saveJob);
+  // save / remove job
+  const { loading: loadingSavedJob, fn: fnSavedJob } = useFetch(saveJob);
 
+  // sync when parent updates
+  useEffect(() => {
+    setSaved(savedInit);
+  }, [savedInit]);
+
+  // ❤️ SAVE / REMOVE JOB
   const handleSaveJob = async () => {
-    await fnSavedJob({
+    if (!user) return;
+
+    const saveData = {
       user_id: user.id,
       job_id: job.id,
-    });
+    };
+
+    const res = await fnSavedJob({ alreadySaved: saved }, saveData);
+
+    if (res?.error) return;
+
+    if (!saved) {
+      alert("Job added to saved jobs ❤️");
+    } else {
+      alert("Job removed from saved jobs 🤍");
+    }
+
+    // toggle heart color
+    setSaved(!saved);
+
+    // refresh saved jobs page
     onJobAction();
   };
 
+  // 🗑 delete job
   const handleDeleteJob = async () => {
     await fnDeleteJob();
     onJobAction();
   };
 
-  useEffect(() => {
-    if (savedJob !== undefined) setSaved(savedJob?.length > 0);
-  }, [savedJob]);
+  // ✅ Build location string from state/city
+  const locationText = job.state && job.city
+    ? `${job.state}, ${job.city}`
+    : job.state || job.city || "Location not specified";
 
   return (
     <Card className="flex flex-col">
-      {loadingDeleteJob && (
-        <BarLoader className="mt-4" width={"100%"} color="#36d7b7" />
+      {(loadingDeleteJob || loadingSavedJob) && (
+        <BarLoader className="mt-2" width="100%" color="#36d7b7" />
       )}
-      <CardHeader className="flex">
+
+      <CardHeader>
         <CardTitle className="flex justify-between font-bold">
           {job.title}
           {isMyJob && (
@@ -70,22 +95,27 @@ const JobCard = ({
           )}
         </CardTitle>
       </CardHeader>
+
       <CardContent className="flex flex-col gap-4 flex-1">
         <div className="flex justify-between">
-          {job.company && <img src={job.company.logo_url} className="h-6" />}
+          {job.company && (
+            <img src={job.company.logo_url} className="h-6" />
+          )}
           <div className="flex gap-2 items-center">
-            <MapPinIcon size={15} /> {job.location}
+            <MapPinIcon size={15} /> {locationText}
           </div>
         </div>
         <hr />
         {job.description.substring(0, job.description.indexOf("."))}.
       </CardContent>
+
       <CardFooter className="flex gap-2">
         <Link to={`/job/${job.id}`} className="flex-1">
           <Button variant="secondary" className="w-full">
             More Details
           </Button>
         </Link>
+
         {!isMyJob && (
           <Button
             variant="outline"
@@ -93,11 +123,7 @@ const JobCard = ({
             onClick={handleSaveJob}
             disabled={loadingSavedJob}
           >
-            {saved ? (
-              <Heart size={20} fill="red" stroke="red" />
-            ) : (
-              <Heart size={20} />
-            )}
+            <Heart size={20} fill={saved ? "red" : "none"} stroke="red" />
           </Button>
         )}
       </CardFooter>

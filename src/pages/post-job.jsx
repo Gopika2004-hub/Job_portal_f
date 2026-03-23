@@ -2,7 +2,6 @@ import { getCompanies } from "@/api/apiCompanies";
 import { addNewJob } from "@/api/apiJobs";
 import AddCompanyDrawer from "@/components/add-company-drawer";
 import { Button } from "@/components/ui/button";
-
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -17,32 +16,41 @@ import useFetch from "@/hooks/use-fetch";
 import { useUser } from "@clerk/clerk-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import MDEditor from "@uiw/react-md-editor";
-import { State } from "country-state-city";
-import { useEffect } from "react";
+import { State, City } from "country-state-city";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Navigate, useNavigate } from "react-router-dom";
 import { BarLoader } from "react-spinners";
 import { z } from "zod";
 
+// ✅ Schema: separate state & city
 const schema = z.object({
   title: z.string().min(1, { message: "Title is required" }),
   description: z.string().min(1, { message: "Description is required" }),
-  location: z.string().min(1, { message: "Select a location" }),
+  state: z.string().optional(),
+  city: z.string().optional(),
   company_id: z.string().min(1, { message: "Select or Add a new Company" }),
   requirements: z.string().min(1, { message: "Requirements are required" }),
-});
+}).refine(
+  (data) => data.state || data.city,
+  { message: "Select at least a state or city", path: ["city"] }
+);
 
 const PostJob = () => {
   const { user, isLoaded } = useUser();
   const navigate = useNavigate();
 
+  const [selectedStateIso, setSelectedStateIso] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+
   const {
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors },
   } = useForm({
-    defaultValues: { location: "", company_id: "", requirements: "" },
+    defaultValues: { state: "", city: "", company_id: "", requirements: "" },
     resolver: zodResolver(schema),
   });
 
@@ -58,6 +66,8 @@ const PostJob = () => {
       ...data,
       recruiter_id: user.id,
       isOpen: true,
+      state: data.state || null,
+      city: data.city || null,
     });
   };
 
@@ -75,8 +85,25 @@ const PostJob = () => {
     if (isLoaded) {
       fnCompanies();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded]);
+
+  // ✅ Update form values when dropdowns change
+  useEffect(() => {
+    if (selectedStateIso) {
+      const stateName = State.getStatesOfCountry("IN").find(
+        (s) => s.isoCode === selectedStateIso
+      )?.name;
+      setValue("state", stateName || "");
+    } else {
+      setValue("state", "");
+    }
+
+    if (selectedCity) {
+      setValue("city", selectedCity);
+    } else {
+      setValue("city", "");
+    }
+  }, [selectedStateIso, selectedCity, setValue]);
 
   if (!isLoaded || loadingCompanies) {
     return <BarLoader className="mb-4" width={"100%"} color="#36d7b7" />;
@@ -95,35 +122,66 @@ const PostJob = () => {
         onSubmit={handleSubmit(onSubmit)}
         className="flex flex-col gap-4 p-4 pb-0"
       >
+        {/* Job Title */}
         <Input placeholder="Job Title" {...register("title")} />
         {errors.title && <p className="text-red-500">{errors.title.message}</p>}
 
+        {/* Description */}
         <Textarea placeholder="Job Description" {...register("description")} />
         {errors.description && (
           <p className="text-red-500">{errors.description.message}</p>
         )}
 
         <div className="flex gap-4 items-center">
-          <Controller
-            name="location"
-            control={control}
-            render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Job Location" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {State.getStatesOfCountry("IN").map(({ name }) => (
+          {/* State Dropdown */}
+          <Select
+            value={selectedStateIso}
+            onValueChange={(val) => {
+              setSelectedStateIso(val);
+              setSelectedCity(""); // reset city when state changes
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select State" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {State.getStatesOfCountry("IN").map(({ name, isoCode }) => (
+                  <SelectItem key={isoCode} value={isoCode}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+
+          {/* City Dropdown */}
+          <Select
+            value={selectedCity}
+            onValueChange={(val) => setSelectedCity(val)}
+            disabled={false} // ✅ allow city-only selection
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select City" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {selectedStateIso
+                  ? City.getCitiesOfState("IN", selectedStateIso)?.map(({ name }) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))
+                  : City.getCitiesOfCountry("IN")?.map(({ name }) => (
                       <SelectItem key={name} value={name}>
                         {name}
                       </SelectItem>
                     ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            )}
-          />
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+
+          {/* Company Dropdown */}
           <Controller
             name="company_id"
             control={control}
@@ -140,7 +198,7 @@ const PostJob = () => {
                 <SelectContent>
                   <SelectGroup>
                     {companies?.map(({ name, id }) => (
-                      <SelectItem key={name} value={id}>
+                      <SelectItem key={id} value={id}>
                         {name}
                       </SelectItem>
                     ))}
@@ -151,13 +209,15 @@ const PostJob = () => {
           />
           <AddCompanyDrawer fetchCompanies={fnCompanies} />
         </div>
-        {errors.location && (
-          <p className="text-red-500">{errors.location.message}</p>
-        )}
+
+        {/* Error messages */}
+        {errors.state && <p className="text-red-500">{errors.state.message}</p>}
+        {errors.city && <p className="text-red-500">{errors.city.message}</p>}
         {errors.company_id && (
           <p className="text-red-500">{errors.company_id.message}</p>
         )}
 
+        {/* Requirements */}
         <Controller
           name="requirements"
           control={control}
@@ -168,13 +228,13 @@ const PostJob = () => {
         {errors.requirements && (
           <p className="text-red-500">{errors.requirements.message}</p>
         )}
-        {errors.errorCreateJob && (
-          <p className="text-red-500">{errors?.errorCreateJob?.message}</p>
-        )}
+
+        {/* API errors */}
         {errorCreateJob?.message && (
           <p className="text-red-500">{errorCreateJob?.message}</p>
         )}
         {loadingCreateJob && <BarLoader width={"100%"} color="#36d7b7" />}
+
         <Button type="submit" variant="blue" size="lg" className="mt-2">
           Submit
         </Button>

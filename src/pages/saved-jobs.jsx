@@ -2,7 +2,7 @@ import { getSavedJobs } from "@/api/apiJobs";
 import JobCard from "@/components/job-card";
 import useFetch from "@/hooks/use-fetch";
 import { useUser } from "@clerk/clerk-react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { BarLoader } from "react-spinners";
 
 const SavedJobs = () => {
@@ -21,8 +21,19 @@ const SavedJobs = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded]);
 
+  // ✅ REMOVE DUPLICATES (frontend safety)
+  const uniqueSavedJobs = useMemo(() => {
+    if (!savedJobs) return [];
+    return savedJobs.filter(
+      (v, i, a) =>
+        a.findIndex(
+          (t) => t.job_id === v.job_id && t.user_id === v.user_id
+        ) === i
+    );
+  }, [savedJobs]);
+
   if (!isLoaded || loadingSavedJobs) {
-    return <BarLoader className="mb-4" width={"100%"} color="#36d7b7" />;
+    return <BarLoader className="mb-4" width="100%" color="#36d7b7" />;
   }
 
   return (
@@ -31,24 +42,20 @@ const SavedJobs = () => {
         Saved Jobs
       </h1>
 
-      {loadingSavedJobs === false && (
-        <div className="mt-8 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {savedJobs?.length ? (
-            savedJobs?.map((saved) => {
-              return (
-                <JobCard
-                  key={saved.id}
-                  job={saved?.job}
-                  onJobAction={fnSavedJobs}
-                  savedInit={true}
-                />
-              );
-            })
-          ) : (
-            <div>No Saved Jobs 👀</div>
-          )}
-        </div>
-      )}
+      <div className="mt-8 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {uniqueSavedJobs.length ? (
+          uniqueSavedJobs.map((saved) => (
+            <JobCard
+              key={`${saved.user_id}-${saved.job_id}`} // ✅ stable key
+              job={saved.job}
+              onJobAction={fnSavedJobs}
+              savedInit={true}
+            />
+          ))
+        ) : (
+          <div>No Saved Jobs 👀</div>
+        )}
+      </div>
     </div>
   );
 };
